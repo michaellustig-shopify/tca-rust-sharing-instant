@@ -1,0 +1,17 @@
+[package]
+name = "todos"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "todos"
+path = "src/main.rs"
+
+[dependencies]
+recipe-utils = { path = "../recipe_utils" }
+instant-client = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }

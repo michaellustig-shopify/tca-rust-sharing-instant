@@ -68,6 +68,25 @@ shared.with_lock(|v| *v = new_value); // auto-persists
 Tracks upstream Swift library versions in `artifacts/`.
 Current: v0.1.0 (based on SQLiteData 1.6 + Sharing 2.7).
 
+## Example Recipes
+
+Interactive CLI demos in `examples/`. All share a single InstantDB app by default (credentials saved to `.instant-app.json`). Pass `--ephemeral` for an isolated app.
+
+| Example | Run | API |
+|---------|-----|-----|
+| `avatar-stack` | `cargo run -p avatar-stack` | `Room<UserPresence>` |
+| `todos` | `cargo run -p todos` | `subscribe` + `transact` |
+| `reactions` | `cargo run -p reactions` | `TopicChannel<EmojiReaction>` |
+| `typing-indicator` | `cargo run -p typing-indicator` | `Room<TypingPresence>` |
+| `cursors` | `cargo run -p cursors` | `Room<CursorPresence>` + ASCII grid |
+| `merge-tiles` | `cargo run -p merge-tiles` | `subscribe` + `transact` + grid |
+
+### Rules for examples
+
+- **Never clutter the UI with debug output.** No `eprintln!` for debug logs in example binaries. Use the logging crate (writes to InstantDB) or a file behind an env var flag.
+- Always show the App ID and dashboard URL on startup.
+- Single-keypress input where possible (raw terminal mode).
+
 ## Trinity
 
 Trinity enforces documentation/tests/code synchronization. Run:

@@ -79,8 +79,12 @@ impl<P: PresenceData> Room<P> {
             let mut rx = reactor.join_room(&rt, &ri).await;
             *joined_ref.write() = true;
 
+            // Grab our own session_id so we can separate self from peers.
+            let my_session_id = reactor.session_id().await;
+
             while rx.changed().await.is_ok() {
                 let raw = rx.borrow().clone();
+
                 let mut new_state = PresenceState::<P> {
                     user: None,
                     peers: std::collections::HashMap::new(),
@@ -88,12 +92,31 @@ impl<P: PresenceData> Room<P> {
                     error: None,
                 };
 
-                // Parse raw presence: Option<{ peer_id: { data } }>
+                // Raw shape from server:
+                //   { session_id: { "peer-id": ..., "data": { user_payload }, ... }, ... }
+                // Extract the "data" field from each peer envelope, and separate
+                // our own session from the peers map.
                 if let Some(val) = raw {
                     if let Some(obj) = val.as_object() {
-                        for (peer_id, data) in obj {
-                            if let Ok(parsed) = serde_json::from_value::<P>(data.clone()) {
-                                new_state.peers.insert(peer_id.clone(), parsed);
+                        for (peer_id, envelope) in obj {
+                            // The user's actual presence payload lives under "data".
+                            // Fall back to the whole envelope for backwards compat.
+                            let payload = envelope
+                                .get("data")
+                                .cloned()
+                                .unwrap_or_else(|| envelope.clone());
+
+                            if let Ok(parsed) = serde_json::from_value::<P>(payload) {
+                                let is_self = my_session_id
+                                    .as_ref()
+                                    .map(|sid| sid == peer_id)
+                                    .unwrap_or(false);
+
+                                if is_self {
+                                    new_state.user = Some(parsed);
+                                } else {
+                                    new_state.peers.insert(peer_id.clone(), parsed);
+                                }
                             }
                         }
                     }

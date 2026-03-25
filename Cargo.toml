@@ -8,6 +8,13 @@ members = [
     "examples/live_sync",
     "examples/counter_sync",
     "examples/auth_demo",
+    "examples/recipe_utils",
+    "examples/avatar_stack",
+    "examples/todos",
+    "examples/reactions",
+    "examples/typing_indicator",
+    "examples/cursors",
+    "examples/merge_tiles",
 ]
 
 [workspace.package]
@@ -51,6 +58,9 @@ dashmap = "6"
 syn = { version = "2", features = ["full", "extra-traits"] }
 quote = "1"
 proc-macro2 = "1"
+
+# Random
+rand = "0.8"
 
 # Testing
 insta = { version = "1", features = ["yaml"] }

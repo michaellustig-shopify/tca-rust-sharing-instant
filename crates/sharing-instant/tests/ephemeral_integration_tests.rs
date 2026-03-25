@@ -185,6 +185,104 @@ async fn room_watch_presence_receives_updates() {
 }
 
 // ============================================================
+// Two-peer presence sync (regression test)
+// ============================================================
+
+/// Two reactors on the same app join the same room, set presence,
+/// and verify each sees the other as a peer via the server round-trip.
+/// This catches protocol deserialization bugs (e.g., missing room-type,
+/// wrong field names) that single-reactor tests miss.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_peers_see_each_other_presence() {
+    let app = make_app("two-peer-presence").await;
+
+    // Create two independent reactors on the same app.
+    let config_a = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_a = Arc::new(Reactor::new(config_a));
+    reactor_a.start().await.expect("reactor A start");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_a = tokio::runtime::Handle::current();
+
+    let config_b = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_b = Arc::new(Reactor::new(config_b));
+    reactor_b.start().await.expect("reactor B start");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_b = tokio::runtime::Handle::current();
+
+    // Both join the same room.
+    let room_a = Room::<Cursor>::join(reactor_a.clone(), handle_a, "test", "sync-room")
+        .expect("A should join");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let room_b = Room::<Cursor>::join(reactor_b.clone(), handle_b, "test", "sync-room")
+        .expect("B should join");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // A sets presence.
+    room_a
+        .set_presence(&Cursor { x: 1.0, y: 2.0 })
+        .expect("A set_presence");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // B sets presence.
+    room_b
+        .set_presence(&Cursor { x: 3.0, y: 4.0 })
+        .expect("B set_presence");
+
+    // Wait for server round-trip (RefreshPresence).
+    let mut rx_a = room_a.watch_presence();
+    let a_sees_peer = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_a.changed().await.expect("watch should not close");
+            let state = rx_a.borrow().clone();
+            if !state.peers.is_empty() {
+                return state;
+            }
+        }
+    })
+    .await;
+
+    assert!(
+        a_sees_peer.is_ok(),
+        "A should see B as a peer within 5 seconds"
+    );
+    let state_a = a_sees_peer.expect("state_a");
+    assert_eq!(state_a.peers.len(), 1, "A should see exactly 1 peer");
+    let peer_cursor = state_a.peers.values().next().expect("peer cursor");
+    assert_eq!(peer_cursor.x, 3.0, "A should see B's x=3.0");
+    assert_eq!(peer_cursor.y, 4.0, "A should see B's y=4.0");
+
+    // Also verify B sees A.
+    let mut rx_b = room_b.watch_presence();
+    let b_sees_peer = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_b.changed().await.expect("watch should not close");
+            let state = rx_b.borrow().clone();
+            if !state.peers.is_empty() {
+                return state;
+            }
+        }
+    })
+    .await;
+
+    assert!(
+        b_sees_peer.is_ok(),
+        "B should see A as a peer within 5 seconds"
+    );
+    let state_b = b_sees_peer.expect("state_b");
+    assert_eq!(state_b.peers.len(), 1, "B should see exactly 1 peer");
+    let peer_cursor_b = state_b.peers.values().next().expect("peer cursor");
+    assert_eq!(peer_cursor_b.x, 1.0, "B should see A's x=1.0");
+    assert_eq!(peer_cursor_b.y, 2.0, "B should see A's y=2.0");
+
+    // Cleanup
+    room_a.leave();
+    room_b.leave();
+    reactor_a.stop().await;
+    reactor_b.stop().await;
+}
+
+// ============================================================
 // TopicChannel + PublishHandle tests
 // ============================================================
 

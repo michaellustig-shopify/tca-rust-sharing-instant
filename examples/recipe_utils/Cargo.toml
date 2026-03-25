@@ -1,0 +1,10 @@
+[package]
+name = "recipe-utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+instant-admin = { workspace = true }
+instant-client = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }

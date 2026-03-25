@@ -1,0 +1,17 @@
+[package]
+name = "avatar-stack"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "avatar-stack"
+path = "src/main.rs"
+
+[dependencies]
+recipe-utils = { path = "../recipe_utils" }
+sharing-instant = { path = "../../crates/sharing-instant" }
+instant-client = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+libc = "0.2"
