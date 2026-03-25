@@ -1,0 +1,16 @@
+[package]
+name = "counter-sync-demo"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "counter-sync"
+path = "src/main.rs"
+
+[dependencies]
+sharing-instant = { path = "../../crates/sharing-instant" }
+instant-client = { workspace = true }
+instant-core = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }

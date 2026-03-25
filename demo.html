@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>sharing-instant — Linked Entity Demo</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --pink: #f778ba;
+    --cyan: #76e4f7;
+    --mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  h1 { color: var(--accent); font-size: 20px; margin-bottom: 4px; }
+  h2 { color: var(--purple); font-size: 15px; margin: 24px 0 8px; }
+  h3 { color: var(--cyan); font-size: 13px; margin: 16px 0 6px; }
+  .subtitle { color: var(--dim); font-size: 12px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .card.recording::before { background: var(--accent); }
+  .card.segment::before { background: var(--green); }
+  .card.idea::before { background: var(--orange); }
+  .card.product::before { background: var(--purple); }
+  .card.person::before { background: var(--pink); }
+  .card.task::before { background: var(--red); }
+  .card.piss::before { background: var(--cyan); }
+  .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .tag.recording { background: #1f3a5f; color: var(--accent); }
+  .tag.segment { background: #1a3a1a; color: var(--green); }
+  .tag.idea { background: #3a2e1a; color: var(--orange); }
+  .tag.product { background: #2a1f3a; color: var(--purple); }
+  .tag.person { background: #3a1f2e; color: var(--pink); }
+  .tag.task { background: #3a1f1f; color: var(--red); }
+  .tag.piss { background: #1a3a3a; color: var(--cyan); }
+  .prop { color: var(--dim); }
+  .prop b { color: var(--text); font-weight: normal; }
+  .link {
+    display: inline-block;
+    padding: 2px 8px;
+    margin: 2px 4px 2px 0;
+    background: #1a1f2e;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .link:hover { border-color: var(--accent); background: #1f2a3f; }
+  .link .arrow { color: var(--dim); }
+  .link .target { color: var(--accent); }
+  code {
+    background: #1a1f2e;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--green);
+  }
+  pre {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    overflow-x: auto;
+    margin: 8px 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  pre .kw { color: var(--purple); }
+  pre .ty { color: var(--cyan); }
+  pre .str { color: var(--green); }
+  pre .num { color: var(--orange); }
+  pre .cm { color: var(--dim); }
+  pre .fn { color: var(--accent); }
+  .graph-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 16px 0;
+  }
+  canvas { display: block; margin: 0 auto; }
+  .watch-panel {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 8px 0;
+    max-height: 180px;
+    overflow-y: auto;
+    font-size: 11px;
+  }
+  .watch-entry {
+    padding: 4px 0;
+    border-bottom: 1px solid #1a1f2e;
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .watch-entry:last-child { border: none; }
+  .watch-ts { color: var(--dim); min-width: 80px; }
+  .watch-op { color: var(--orange); min-width: 60px; }
+  .btn {
+    background: #21262d;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 12px;
+    transition: all 0.15s;
+    margin: 4px;
+  }
+  .btn:hover { background: #30363d; border-color: var(--accent); }
+  .btn.active { background: #1f3a5f; border-color: var(--accent); }
+  .controls { margin: 12px 0; display: flex; flex-wrap: wrap; gap: 4px; }
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 16px 0;
+    font-size: 11px;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: var(--green);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .full-width { grid-column: 1 / -1; }
+  .nested { margin-left: 16px; padding-left: 12px; border-left: 2px solid var(--border); }
+  .tab-bar { display: flex; gap: 0; margin-bottom: -1px; position: relative; z-index: 1; }
+  .tab {
+    padding: 8px 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .tab.active { background: var(--surface); color: var(--text); border-bottom: 1px solid var(--surface); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+</style>
+</head>
+<body>
+
+<h1>sharing-instant — Linked Entity Demo</h1>
+<p class="subtitle">
+  Modeling a voice-memo knowledge graph with reactive persistence.
+  Entities link to each other — queries nest — subscriptions propagate.
+</p>
+
+<div class="status-bar">
+  <div>
+    <span class="status-dot"></span>
+    <span>InMemoryDatabase — <b id="entity-count">0</b> entities, <b id="link-count">0</b> links</span>
+  </div>
+  <div>
+    <span style="color:var(--dim)">watch channels:</span>
+    <b id="sub-count">0</b> active
+  </div>
+</div>
+
+<!-- ═══ Interactive Graph ═══ -->
+
+<h2>Entity Relationship Graph</h2>
+<div class="graph-container">
+  <canvas id="graph" width="1140" height="420"></canvas>
+</div>
+
+<!-- ═══ Controls ═══ -->
+
+<div class="controls">
+  <button class="btn" onclick="addSillyRecording()">+ Recording</button>
+  <button class="btn" onclick="addSillyIdea()">+ Idea</button>
+  <button class="btn" onclick="addSillyTask()">+ Task</button>
+  <button class="btn" onclick="evolveRandomIdea()">Evolve Idea → Product</button>
+  <button class="btn" onclick="addRandomLink()">+ Random Link</button>
+  <button class="btn" onclick="deleteRandom()">Delete Random</button>
+</div>
+
+<!-- ═══ Tabs ═══ -->
+
+<div class="tab-bar">
+  <div class="tab active" onclick="switchTab('entities')">Entities</div>
+  <div class="tab" onclick="switchTab('nested')">Nested Query</div>
+  <div class="tab" onclick="switchTab('rust')">Rust Code</div>
+  <div class="tab" onclick="switchTab('watch')">Watch Log</div>
+</div>
+
+<!-- ═══ Tab: Entities ═══ -->
+
+<div id="tab-entities" class="tab-content active">
+  <div class="card" style="border-top: 1px solid var(--border);">
+    <div id="entity-list"></div>
+  </div>
+</div>
+
+<!-- ═══ Tab: Nested Query ═══ -->
+
+<div id="tab-nested" class="tab-content">
+  <div class="card" style="border-top: 1px solid var(--border);">
+    <h3>InstaQL Nested Query</h3>
+    <p class="prop">This is how InstantDB fetches a Recording with all linked entities in one query:</p>
+    <pre id="nested-query"></pre>
+    <h3>Response</h3>
+    <pre id="nested-response"></pre>
+  </div>
+</div>
+
+<!-- ═══ Tab: Rust Code ═══ -->
+
+<div id="tab-rust" class="tab-content">
+  <div class="card" style="border-top: 1px solid var(--border);">
+    <h3>Rust — Table Definitions</h3>
+    <pre><span class="cm">// Each Neo4j node type becomes a Table-implementing struct</span>
+
+<span class="kw">impl</span> <span class="ty">Table</span> <span class="kw">for</span> <span class="ty">Recording</span> {
+    <span class="kw">const</span> TABLE_NAME: &<span class="kw">'static</span> <span class="ty">str</span> = <span class="str">"recordings"</span>;
+    <span class="kw">fn</span> <span class="fn">columns</span>() -> &<span class="kw">'static</span> [<span class="ty">ColumnDef</span>] { &[<span class="cm">/* ... */</span>] }
+}
+
+<span class="kw">impl</span> <span class="ty">Table</span> <span class="kw">for</span> <span class="ty">Idea</span> {
+    <span class="kw">const</span> TABLE_NAME: &<span class="kw">'static</span> <span class="ty">str</span> = <span class="str">"ideas"</span>;
+    <span class="kw">fn</span> <span class="fn">columns</span>() -> &<span class="kw">'static</span> [<span class="ty">ColumnDef</span>] { &[<span class="cm">/* ... */</span>] }
+}</pre>
+
+    <h3>Rust — Nested Query via Fetch</h3>
+    <pre><span class="cm">// FetchKeyRequest combines multiple queries into one atomic observation</span>
+
+<span class="kw">struct</span> <span class="ty">RecordingDetailRequest</span> {
+    memo_id: <span class="ty">String</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">FetchKeyRequest</span> <span class="kw">for</span> <span class="ty">RecordingDetailRequest</span> {
+    <span class="kw">type</span> Value = <span class="ty">RecordingDetail</span>;
+
+    <span class="kw">fn</span> <span class="fn">fetch</span>(&<span class="kw">self</span>, db: &<span class="kw">dyn</span> <span class="ty">Database</span>) -> <span class="ty">Result</span>&lt;<span class="ty">RecordingDetail</span>&gt; {
+        <span class="cm">// Single nested query — InstantDB resolves links server-side</span>
+        <span class="kw">let</span> q = json_to_value(&serde_json::json!({
+            <span class="str">"recordings"</span>: {
+                <span class="str">"$"</span>: { <span class="str">"where"</span>: { <span class="str">"memo_id"</span>: <span class="kw">self</span>.memo_id } },
+                <span class="str">"segments"</span>: {
+                    <span class="str">"ideas"</span>: {},       <span class="cm">// nested: segment → ideas</span>
+                    <span class="str">"tasks"</span>: {},       <span class="cm">// nested: segment → tasks</span>
+                    <span class="str">"persons"</span>: {},     <span class="cm">// nested: segment → persons</span>
+                }
+            }
+        }));
+        <span class="kw">let</span> result = db.<span class="fn">query</span>(&q)?;
+        <span class="cm">// Parse nested response into typed structs...</span>
+    }
+}
+
+<span class="cm">// Usage — just like @Fetch in Swift:</span>
+<span class="kw">let</span> detail = <span class="ty">Fetch</span>::<span class="fn">new</span>(
+    <span class="ty">RecordingDetailRequest</span> { memo_id: <span class="str">"memo-42"</span>.into() },
+    db.clone(),
+);
+
+<span class="cm">// Reactive! Updates when ANY linked entity changes</span>
+<span class="kw">let</span> recording = detail.<span class="fn">get</span>();
+<span class="kw">for</span> seg <span class="kw">in</span> &recording.segments {
+    <span class="kw">for</span> idea <span class="kw">in</span> &seg.ideas {
+        println!(<span class="str">"  Idea: {} ({})"</span>, idea.name, idea.status);
+    }
+}</pre>
+
+    <h3>Rust — Shared State with Links</h3>
+    <pre><span class="cm">// Idea evolves into Product — relationship tracked reactively</span>
+
+<span class="kw">let</span> idea = <span class="ty">Shared</span>::<span class="fn">new</span>(
+    <span class="ty">Idea</span> {
+        slug: <span class="str">"voice-activated-dog-treat-cannon"</span>.into(),
+        name: <span class="str">"Voice-Activated Dog Treat Cannon"</span>.into(),
+        status: <span class="str">"conceptual"</span>.into(),
+        ..
+    },
+    <span class="ty">InstantDbKey</span>::<span class="fn">new</span>(<span class="str">"idea-treat-cannon"</span>, db.clone()),
+);
+
+<span class="cm">// Mutate — auto-persists to InstantDB, syncs to all clients</span>
+idea.<span class="fn">with_lock</span>(|i| {
+    i.status = <span class="str">"prototyped"</span>.into();
+});
+
+<span class="cm">// Watch for changes from other clients via WebSocket</span>
+<span class="kw">let mut</span> rx = idea.<span class="fn">watch</span>();
+<span class="kw">while</span> rx.<span class="fn">changed</span>().<span class="kw">await</span>.<span class="fn">is_ok</span>() {
+    println!(<span class="str">"Idea updated: {:?}"</span>, *rx.<span class="fn">borrow</span>());
+}</pre>
+  </div>
+</div>
+
+<!-- ═══ Tab: Watch Log ═══ -->
+
+<div id="tab-watch" class="tab-content">
+  <div class="card" style="border-top: 1px solid var(--border);">
+    <h3>Subscription Watch Log</h3>
+    <p class="prop">Real-time log of all watch channel notifications (reactive updates):</p>
+    <div class="watch-panel" id="watch-log"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// In-memory database simulation (mirrors sharing-instant)
+// ═══════════════════════════════════════════════════════════════
+
+const DB = {
+  entities: {},        // type -> id -> data
+  links: [],           // { from: {type, id}, to: {type, id}, rel: string }
+  subscriptions: [],   // { query, callback }
+  watchLog: [],
+};
+
+function insert(type, id, data) {
+  if (!DB.entities[type]) DB.entities[type] = {};
+  DB.entities[type][id] = { id, ...data };
+  logWatch('INSERT', `${type}/${id}`, data.name || data.title || data.text || id);
+  notifySubscriptions();
+}
+
+function remove(type, id) {
+  if (DB.entities[type]) {
+    delete DB.entities[type][id];
+    DB.links = DB.links.filter(l =>
+      !(l.from.type === type && l.from.id === id) &&
+      !(l.to.type === type && l.to.id === id)
+    );
+    logWatch('DELETE', `${type}/${id}`, '');
+    notifySubscriptions();
+  }
+}
+
+function addLink(fromType, fromId, toType, toId, rel) {
+  DB.links.push({ from: { type: fromType, id: fromId }, to: { type: toType, id: toId }, rel });
+  logWatch('LINK', `${rel}`, `${fromType}/${fromId} → ${toType}/${toId}`);
+  notifySubscriptions();
+}
+
+function notifySubscriptions() {
+  DB.subscriptions.forEach(s => s.callback());
+  updateUI();
+}
+
+function logWatch(op, target, detail) {
+  const ts = new Date().toLocaleTimeString('en-US', { hour12: false });
+  DB.watchLog.unshift({ ts, op, target, detail });
+  if (DB.watchLog.length > 50) DB.watchLog.pop();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Silly data generators
+// ═══════════════════════════════════════════════════════════════
+
+const SILLY_RECORDINGS = [
+  { title: "Shower thought about quantum pasta", duration: 127 },
+  { title: "3am epiphany: cats ARE computers", duration: 42 },
+  { title: "Walking the dog — blockchain for treats", duration: 312 },
+  { title: "Traffic jam rant about CSS grid", duration: 89 },
+  { title: "Whispered idea in library — AI sommelier", duration: 23 },
+  { title: "Cooking dinner — recursive lasagna theory", duration: 445 },
+  { title: "Post-coffee revelation about type systems", duration: 67 },
+  { title: "Running — why do socks have L and R", duration: 203 },
+  { title: "Dentist waiting room — tooth-based auth", duration: 156 },
+  { title: "Elevator pitch to myself about nothing", duration: 34 },
+];
+
+const SILLY_IDEAS = [
+  { name: "Voice-Activated Dog Treat Cannon", status: "conceptual" },
+  { name: "Recursive Lasagna Protocol", status: "specified" },
+  { name: "Quantum Pasta Entanglement", status: "conceptual" },
+  { name: "Cat-Computer Isomorphism Theorem", status: "prototyped" },
+  { name: "Tooth-Based Authentication (TBA)", status: "conceptual" },
+  { name: "AI Wine Sommelier That Only Likes Box Wine", status: "specified" },
+  { name: "Blockchain for Sock Pairing", status: "built" },
+  { name: "CSS Grid for Actual Grids (like grills)", status: "conceptual" },
+  { name: "Type System for Feelings", status: "specified" },
+  { name: "Functional Programming for Cooking", status: "prototyped" },
+];
+
+const SILLY_TASKS = [
+  { text: "Buy more pasta for quantum experiments", status: "pending" },
+  { text: "Ask Oscar if cats actually compute", status: "pending" },
+  { text: "File patent for tooth-based 2FA", status: "done" },
+  { text: "Test recursive lasagna (eat 7 layers deep)", status: "pending" },
+  { text: "Train dog to respond to WebSocket events", status: "pending" },
+  { text: "Convince wife that sock blockchain is viable", status: "done" },
+  { text: "Write PISS for feeling type system", status: "pending" },
+  { text: "Prototype AI sommelier (buy box wine first)", status: "pending" },
+];
+
+const SILLY_PERSONS = [
+  { name: "Oscar", context: "the dog, primary treat cannon test subject" },
+  { name: "Wife", context: "skeptical but supportive, vetoed sock blockchain ICO" },
+  { name: "Mom", context: "thinks all ideas are great, unreliable validator" },
+  { name: "Troy", context: "coworker, introduced cat-computer theorem" },
+  { name: "Dentist", context: "unknowing inspiration for TBA" },
+];
+
+const SILLY_PRODUCTS = [
+  { name: "TreatCannon Pro", status: "prototyped" },
+  { name: "LaZagna.js", status: "built" },
+  { name: "SockChain", status: "built" },
+  { name: "FeelTypes", status: "specified" },
+];
+
+const RELS = [
+  "HAS_SEGMENT", "MENTIONS", "EVOLVES_INTO", "BECOMES",
+  "PROVIDES_EVIDENCE_FOR", "MOTIVATES", "REQUIRES",
+  "SUPPORTS", "BLOCKS", "TESTED_BY", "IMPLEMENTS",
+];
+
+let idCounter = 0;
+function nextId(prefix) { return `${prefix}-${++idCounter}`; }
+
+function slugify(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, ''); }
+
+// ═══════════════════════════════════════════════════════════════
+// Seed initial data
+// ═══════════════════════════════════════════════════════════════
+
+function seed() {
+  // Recordings
+  SILLY_RECORDINGS.slice(0, 4).forEach(r => {
+    const id = nextId('memo');
+    insert('Recording', id, { ...r, memo_id: id, created_at: new Date().toISOString() });
+  });
+
+  // Ideas
+  SILLY_IDEAS.slice(0, 5).forEach(i => {
+    const slug = slugify(i.name);
+    insert('Idea', slug, { ...i, slug });
+  });
+
+  // Tasks
+  SILLY_TASKS.slice(0, 3).forEach(t => {
+    const slug = slugify(t.text).slice(0, 30);
+    insert('Task', slug, { ...t, slug });
+  });
+
+  // Persons
+  SILLY_PERSONS.slice(0, 3).forEach(p => {
+    insert('Person', p.name.toLowerCase(), p);
+  });
+
+  // Products
+  SILLY_PRODUCTS.slice(0, 2).forEach(p => {
+    const slug = slugify(p.name);
+    insert('Product', slug, { ...p, slug });
+  });
+
+  // Links
+  const recIds = Object.keys(DB.entities['Recording'] || {});
+  const ideaIds = Object.keys(DB.entities['Idea'] || {});
+  const taskIds = Object.keys(DB.entities['Task'] || {});
+  const personIds = Object.keys(DB.entities['Person'] || {});
+  const productIds = Object.keys(DB.entities['Product'] || {});
+
+  if (recIds[0] && ideaIds[0]) addLink('Recording', recIds[0], 'Idea', ideaIds[0], 'MENTIONS');
+  if (recIds[0] && ideaIds[1]) addLink('Recording', recIds[0], 'Idea', ideaIds[1], 'MENTIONS');
+  if (recIds[1] && ideaIds[2]) addLink('Recording', recIds[1], 'Idea', ideaIds[2], 'MENTIONS');
+  if (recIds[1] && personIds[1]) addLink('Recording', recIds[1], 'Person', personIds[1], 'MENTIONS_PERSON');
+  if (recIds[2] && taskIds[0]) addLink('Recording', recIds[2], 'Task', taskIds[0], 'MENTIONS');
+  if (recIds[2] && personIds[0]) addLink('Recording', recIds[2], 'Person', personIds[0], 'MENTIONS_PERSON');
+  if (ideaIds[0] && productIds[0]) addLink('Idea', ideaIds[0], 'Product', productIds[0], 'BECOMES');
+  if (ideaIds[1] && productIds[1]) addLink('Idea', ideaIds[1], 'Product', productIds[1], 'BECOMES');
+  if (ideaIds[0] && ideaIds[3]) addLink('Idea', ideaIds[0], 'Idea', ideaIds[3], 'MOTIVATES');
+  if (ideaIds[2] && ideaIds[1]) addLink('Idea', ideaIds[2], 'Idea', ideaIds[1], 'EVOLVES_INTO');
+  if (taskIds[0] && ideaIds[2]) addLink('Task', taskIds[0], 'Idea', ideaIds[2], 'IMPLEMENTS');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI Actions
+// ═══════════════════════════════════════════════════════════════
+
+function addSillyRecording() {
+  const r = SILLY_RECORDINGS[Math.floor(Math.random() * SILLY_RECORDINGS.length)];
+  const id = nextId('memo');
+  insert('Recording', id, { ...r, memo_id: id, created_at: new Date().toISOString() });
+  // Link to random idea
+  const ideaIds = Object.keys(DB.entities['Idea'] || {});
+  if (ideaIds.length > 0) {
+    addLink('Recording', id, 'Idea', ideaIds[Math.floor(Math.random() * ideaIds.length)], 'MENTIONS');
+  }
+}
+
+function addSillyIdea() {
+  const i = SILLY_IDEAS[Math.floor(Math.random() * SILLY_IDEAS.length)];
+  const slug = slugify(i.name) + '-' + (idCounter + 1);
+  insert('Idea', slug, { ...i, slug });
+  // Link to random recording
+  const recIds = Object.keys(DB.entities['Recording'] || {});
+  if (recIds.length > 0) {
+    addLink('Recording', recIds[Math.floor(Math.random() * recIds.length)], 'Idea', slug, 'MENTIONS');
+  }
+}
+
+function addSillyTask() {
+  const t = SILLY_TASKS[Math.floor(Math.random() * SILLY_TASKS.length)];
+  const slug = slugify(t.text).slice(0, 30) + '-' + (idCounter + 1);
+  insert('Task', slug, { ...t, slug });
+}
+
+function evolveRandomIdea() {
+  const ideas = Object.entries(DB.entities['Idea'] || {});
+  const conceptual = ideas.filter(([_, i]) => i.status === 'conceptual');
+  if (conceptual.length === 0) return;
+  const [id, idea] = conceptual[Math.floor(Math.random() * conceptual.length)];
+  const product = { name: idea.name + ' Pro', status: 'prototyped', slug: id + '-pro' };
+  insert('Product', product.slug, product);
+  addLink('Idea', id, 'Product', product.slug, 'BECOMES');
+  DB.entities['Idea'][id].status = 'built';
+  logWatch('UPDATE', `Idea/${id}`, `status → built`);
+  notifySubscriptions();
+}
+
+function addRandomLink() {
+  const allTypes = Object.keys(DB.entities);
+  if (allTypes.length < 2) return;
+  const t1 = allTypes[Math.floor(Math.random() * allTypes.length)];
+  const t2 = allTypes[Math.floor(Math.random() * allTypes.length)];
+  const ids1 = Object.keys(DB.entities[t1]);
+  const ids2 = Object.keys(DB.entities[t2]);
+  if (ids1.length === 0 || ids2.length === 0) return;
+  const rel = RELS[Math.floor(Math.random() * RELS.length)];
+  addLink(t1, ids1[Math.floor(Math.random() * ids1.length)],
+          t2, ids2[Math.floor(Math.random() * ids2.length)], rel);
+}
+
+function deleteRandom() {
+  const allTypes = Object.keys(DB.entities).filter(t => Object.keys(DB.entities[t]).length > 0);
+  if (allTypes.length === 0) return;
+  const t = allTypes[Math.floor(Math.random() * allTypes.length)];
+  const ids = Object.keys(DB.entities[t]);
+  remove(t, ids[Math.floor(Math.random() * ids.length)]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Tabs
+// ═══════════════════════════════════════════════════════════════
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector(`#tab-${name}`).classList.add('active');
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.textContent.toLowerCase().replace(/\s/g, '') === name.replace(/\s/g, ''))
+      t.classList.add('active');
+  });
+  // Ugly but works for matching tab names
+  const tabMap = { entities: 0, nested: 1, rust: 2, watch: 3 };
+  document.querySelectorAll('.tab')[tabMap[name]].classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Graph rendering
+// ═══════════════════════════════════════════════════════════════
+
+const TYPE_COLORS = {
+  Recording: '#58a6ff',
+  Idea: '#d29922',
+  Product: '#bc8cff',
+  Task: '#f85149',
+  Person: '#f778ba',
+  PISS: '#76e4f7',
+  Segment: '#3fb950',
+};
+
+const TYPE_SHAPES = {
+  Recording: 'circle',
+  Idea: 'diamond',
+  Product: 'square',
+  Task: 'triangle',
+  Person: 'circle',
+};
+
+function drawGraph() {
+  const canvas = document.getElementById('graph');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Collect all nodes with positions
+  const nodes = [];
+  const nodeMap = {};
+  let i = 0;
+  for (const [type, entities] of Object.entries(DB.entities)) {
+    for (const [id, data] of Object.entries(entities)) {
+      const key = `${type}/${id}`;
+      // Simple force-directed-ish layout: spread by type, jitter by index
+      const typeIdx = Object.keys(DB.entities).indexOf(type);
+      const typeCount = Object.keys(DB.entities).length;
+      const entryIdx = Object.keys(entities).indexOf(id);
+      const entryCount = Object.keys(entities).length;
+
+      const cx = 80 + (W - 160) * (typeIdx / Math.max(typeCount - 1, 1));
+      const cy = 60 + (H - 120) * (entryIdx / Math.max(entryCount, 1));
+      const jx = Math.sin(i * 2.7) * 30;
+      const jy = Math.cos(i * 3.1) * 20;
+
+      const node = { type, id, key, data, x: cx + jx, y: cy + jy };
+      nodes.push(node);
+      nodeMap[key] = node;
+      i++;
+    }
+  }
+
+  // Draw links
+  for (const link of DB.links) {
+    const from = nodeMap[`${link.from.type}/${link.from.id}`];
+    const to = nodeMap[`${link.to.type}/${link.to.id}`];
+    if (!from || !to) continue;
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = 1.5;
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    // Arrow
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const mx = (from.x + to.x) / 2;
+    const my = (from.y + to.y) / 2;
+    ctx.beginPath();
+    ctx.fillStyle = '#484f58';
+    ctx.moveTo(mx + 6 * Math.cos(angle), my + 6 * Math.sin(angle));
+    ctx.lineTo(mx - 4 * Math.cos(angle - 0.5), my - 4 * Math.sin(angle - 0.5));
+    ctx.lineTo(mx - 4 * Math.cos(angle + 0.5), my - 4 * Math.sin(angle + 0.5));
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#484f58';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(link.rel, mx, my - 6);
+  }
+
+  // Draw nodes
+  for (const node of nodes) {
+    const color = TYPE_COLORS[node.type] || '#8b949e';
+    const r = 14;
+
+    ctx.beginPath();
+    ctx.fillStyle = color + '22';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Label
+    ctx.fillStyle = color;
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(node.type.slice(0, 3).toUpperCase(), node.x, node.y + 3);
+
+    // Name below
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = '10px monospace';
+    const label = node.data.name || node.data.title || node.data.text || node.id;
+    ctx.fillText(label.slice(0, 22), node.x, node.y + r + 12);
+  }
+
+  // Legend
+  ctx.font = '10px monospace';
+  let lx = 10, ly = H - 10;
+  for (const [type, color] of Object.entries(TYPE_COLORS)) {
+    if (!DB.entities[type]) continue;
+    ctx.fillStyle = color;
+    ctx.fillRect(lx, ly - 8, 8, 8);
+    ctx.fillText(type, lx + 12, ly);
+    lx += ctx.measureText(type).width + 28;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI Update
+// ═══════════════════════════════════════════════════════════════
+
+function updateUI() {
+  // Counts
+  let entityCount = 0, linkCount = DB.links.length;
+  for (const type of Object.keys(DB.entities)) {
+    entityCount += Object.keys(DB.entities[type]).length;
+  }
+  document.getElementById('entity-count').textContent = entityCount;
+  document.getElementById('link-count').textContent = linkCount;
+  document.getElementById('sub-count').textContent = DB.subscriptions.length || entityCount;
+
+  // Entity list
+  let html = '';
+  for (const [type, entities] of Object.entries(DB.entities)) {
+    const count = Object.keys(entities).length;
+    if (count === 0) continue;
+    html += `<h3 style="margin-top:12px"><span class="tag ${type.toLowerCase()}">${type}</span> (${count})</h3>`;
+    for (const [id, data] of Object.entries(entities)) {
+      const name = data.name || data.title || data.text || id;
+      const status = data.status ? ` <code>${data.status}</code>` : '';
+      const linkedTo = DB.links
+        .filter(l => l.from.type === type && l.from.id === id)
+        .map(l => `<span class="link"><span class="arrow">${l.rel} →</span> <span class="target">${l.to.type}/${l.to.id.slice(0,20)}</span></span>`)
+        .join('');
+      const linkedFrom = DB.links
+        .filter(l => l.to.type === type && l.to.id === id)
+        .map(l => `<span class="link"><span class="target">${l.from.type}/${l.from.id.slice(0,20)}</span> <span class="arrow">→ ${l.rel}</span></span>`)
+        .join('');
+      html += `<div style="margin:6px 0;padding:6px 0;border-bottom:1px solid #1a1f2e">`;
+      html += `<b>${name}</b>${status} <span class="prop">id: ${id}</span>`;
+      if (linkedTo) html += `<div style="margin-top:4px">${linkedTo}</div>`;
+      if (linkedFrom) html += `<div style="margin-top:2px">${linkedFrom}</div>`;
+      html += `</div>`;
+    }
+  }
+  document.getElementById('entity-list').innerHTML = html;
+
+  // Nested query
+  const recIds = Object.keys(DB.entities['Recording'] || {});
+  const firstRec = recIds[0];
+  if (firstRec) {
+    const rec = DB.entities['Recording'][firstRec];
+    const linkedIdeas = DB.links
+      .filter(l => l.from.type === 'Recording' && l.from.id === firstRec && l.to.type === 'Idea')
+      .map(l => DB.entities['Idea']?.[l.to.id])
+      .filter(Boolean);
+    const linkedPersons = DB.links
+      .filter(l => l.from.type === 'Recording' && l.from.id === firstRec && l.to.type === 'Person')
+      .map(l => DB.entities['Person']?.[l.to.id])
+      .filter(Boolean);
+    const linkedTasks = DB.links
+      .filter(l => l.from.type === 'Recording' && l.from.id === firstRec && l.to.type === 'Task')
+      .map(l => DB.entities['Task']?.[l.to.id])
+      .filter(Boolean);
+
+    // Ideas that became products
+    const ideaProducts = linkedIdeas.map(idea => {
+      const prod = DB.links
+        .filter(l => l.from.type === 'Idea' && l.from.id === idea.slug && l.to.type === 'Product' && l.rel === 'BECOMES')
+        .map(l => DB.entities['Product']?.[l.to.id])
+        .filter(Boolean);
+      return { ...idea, products: prod };
+    });
+
+    const query = {
+      recordings: {
+        $: { where: { memo_id: firstRec } },
+        ideas: { products: {} },
+        tasks: {},
+        persons: {},
+      }
+    };
+
+    const response = {
+      recordings: [{
+        ...rec,
+        ideas: ideaProducts.map(i => ({
+          slug: i.slug, name: i.name, status: i.status,
+          products: i.products.map(p => ({ slug: p.slug, name: p.name, status: p.status }))
+        })),
+        tasks: linkedTasks.map(t => ({ slug: t.slug, text: t.text, status: t.status })),
+        persons: linkedPersons.map(p => ({ name: p.name, context: p.context })),
+      }]
+    };
+
+    document.getElementById('nested-query').textContent = JSON.stringify(query, null, 2);
+    document.getElementById('nested-response').textContent = JSON.stringify(response, null, 2);
+  }
+
+  // Watch log
+  const logHtml = DB.watchLog.map(e =>
+    `<div class="watch-entry">
+      <span class="watch-ts">${e.ts}</span>
+      <span class="watch-op">${e.op}</span>
+      <span>${e.target}</span>
+      <span class="prop">${e.detail}</span>
+    </div>`
+  ).join('');
+  document.getElementById('watch-log').innerHTML = logHtml;
+
+  drawGraph();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════════════════════
+
+seed();
+updateUI();
+</script>
+</body>
+</html>

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>sharing-instant — Live Sync</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --orange: #d29922; --red: #f85149;
+  --purple: #bc8cff; --mono: 'SF Mono','Fira Code',monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:var(--mono);
+       font-size:13px; line-height:1.6; max-width:700px; margin:0 auto; padding:24px; }
+h1 { color:var(--accent); font-size:18px; }
+.sub { color:var(--dim); font-size:11px; margin-bottom:16px; }
+.status { display:inline-flex; align-items:center; gap:6px; padding:4px 10px;
+           background:var(--surface); border:1px solid var(--border);
+           border-radius:6px; font-size:11px; margin-bottom:16px; }
+.dot { width:8px; height:8px; border-radius:50%; }
+.dot.ok { background:var(--green); animation:pulse 2s infinite; }
+.dot.no { background:var(--red); }
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.4 } }
+.card { background:var(--surface); border:1px solid var(--border);
+         border-radius:8px; padding:16px; margin-bottom:12px; }
+.card h2 { color:var(--purple); font-size:14px; margin-bottom:10px; }
+.todo { display:flex; align-items:center; gap:10px; padding:8px 0;
+         border-bottom:1px solid #1e2430; }
+.todo:last-child { border:none; }
+.todo input { width:18px; height:18px; accent-color:var(--accent); cursor:pointer; }
+.todo.done span { text-decoration:line-through; color:var(--dim); }
+.todo .del { margin-left:auto; background:none; border:none;
+              color:var(--red); cursor:pointer; opacity:.5; font-size:14px; }
+.todo .del:hover { opacity:1; }
+.add-row { display:flex; gap:8px; margin-top:12px; }
+.add-row input { flex:1; background:#0d1117; border:1px solid var(--border);
+                  color:var(--text); padding:8px 12px; border-radius:6px;
+                  font-family:var(--mono); font-size:13px; }
+.add-row button { background:var(--accent); color:#0d1117; border:none;
+                   padding:8px 16px; border-radius:6px; cursor:pointer;
+                   font-family:var(--mono); font-weight:bold; }
+.log { background:#0d1117; border:1px solid var(--border); border-radius:6px;
+        padding:10px; max-height:180px; overflow-y:auto; font-size:11px; }
+.log-entry { padding:3px 0; border-bottom:1px solid #1a1f2e; display:flex; gap:8px; }
+.log-entry:last-child { border:none; }
+.log-ts { color:var(--dim); min-width:70px; }
+.log-op { color:var(--orange); min-width:50px; }
+.nested { background:#0d1117; border:1px solid var(--border); border-radius:6px;
+           padding:10px; font-size:11px; white-space:pre-wrap; overflow-x:auto;
+           max-height:300px; overflow-y:auto; }
+.hint { color:var(--dim); font-size:11px; margin:8px 0; }
+.count { color:var(--accent); font-weight:bold; }
+</style>
+</head>
+<body>
+
+<h1>sharing-instant — Live Sync</h1>
+<div class="sub">Browser ↔ Rust CLI — same InstantDB app, real-time WebSocket sync</div>
+
+<div class="status">
+  <div class="dot no" id="dot"></div>
+  <span id="status-text">connecting...</span>
+</div>
+
+<div class="card">
+  <h2>Todos <span class="count" id="todo-count">(0)</span></h2>
+  <div id="todo-list"></div>
+  <div class="add-row">
+    <input id="new-todo" placeholder="Add from browser..." onkeydown="if(event.key==='Enter')addTodo()">
+    <button onclick="addTodo()">Add</button>
+  </div>
+  <div class="hint">
+    Add a todo here or type <code>add &lt;text&gt;</code> in the Rust CLI — both sync instantly.
+  </div>
+</div>
+
+<div class="card">
+  <h2>Nested Query Response</h2>
+  <div class="hint">Projects with their linked todos (nested InstaQL):</div>
+  <div class="nested" id="nested-out">loading...</div>
+</div>
+
+<div class="card">
+  <h2>Sync Log</h2>
+  <div class="log" id="sync-log"></div>
+</div>
+
+<script type="module">
+import { init, tx, id } from 'https://esm.sh/@instantdb/core@0.17.4';
+
+const APP_ID = '1e9703fe-f71d-4906-a5bd-4e6c75595503';
+const db = init({ appId: APP_ID });
+const logs = [];
+
+function log(op, detail) {
+  const ts = new Date().toLocaleTimeString('en-US', { hour12:false });
+  logs.unshift({ ts, op, detail });
+  if (logs.length > 40) logs.pop();
+  document.getElementById('sync-log').innerHTML = logs.map(e =>
+    `<div class="log-entry"><span class="log-ts">${e.ts}</span><span class="log-op">${e.op}</span><span>${e.detail}</span></div>`
+  ).join('');
+}
+
+// ── Subscribe to todos ──
+db.subscribeQuery({ todos: {} }, (r) => {
+  if (r.error) { log('ERROR', r.error.message); return; }
+  const todos = (r.data?.todos || []).sort((a,b) => (a.ts||0) - (b.ts||0));
+  document.getElementById('todo-count').textContent = `(${todos.length})`;
+  document.getElementById('todo-list').innerHTML = todos.map((t,i) => `
+    <div class="todo ${t.done ? 'done' : ''}">
+      <input type="checkbox" ${t.done ? 'checked' : ''} onchange="window._toggle('${t.id}', ${!t.done})">
+      <span>${t.text}</span>
+      <button class="del" onclick="window._del('${t.id}')">&times;</button>
+    </div>
+  `).join('');
+  log('SYNC', `${todos.length} todos`);
+});
+
+// ── Subscribe to nested query (projects → todos) ──
+db.subscribeQuery({ projects: { todos: {} } }, (r) => {
+  if (r.error) { log('ERROR', r.error.message); return; }
+  document.getElementById('nested-out').textContent = JSON.stringify(r.data, null, 2);
+  log('NESTED', `projects: ${(r.data?.projects||[]).length}`);
+});
+
+// ── Connection status ──
+let wasConnected = false;
+setInterval(() => {
+  // The SDK doesn't expose connection status directly,
+  // so we just mark as connected after first data
+  if (!wasConnected && document.getElementById('todo-list').innerHTML) {
+    wasConnected = true;
+    document.getElementById('dot').className = 'dot ok';
+    document.getElementById('status-text').textContent = 'connected — syncing with Rust CLI';
+    log('CONNECT', `app: ${APP_ID.slice(0,8)}...`);
+  }
+}, 500);
+
+// ── Actions ──
+window.addTodo = function() {
+  const input = document.getElementById('new-todo');
+  const text = input.value.trim();
+  if (!text) return;
+  const todoId = crypto.randomUUID();
+  db.transact(tx.todos[todoId].update({
+    text, done: false, ts: Date.now()
+  }));
+  input.value = '';
+  log('ADD', text);
+};
+
+window._toggle = function(todoId, done) {
+  db.transact(tx.todos[todoId].update({ done }));
+  log('TOGGLE', done ? 'done' : 'undone');
+};
+
+window._del = function(todoId) {
+  db.transact(tx.todos[todoId].delete());
+  log('DELETE', todoId.slice(0,8));
+};
+</script>
+</body>
+</html>
