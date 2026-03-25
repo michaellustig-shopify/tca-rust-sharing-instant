@@ -25,5 +25,8 @@ dashmap = { workspace = true }
 [dev-dependencies]
 sharing-instant-test = { workspace = true }
 instant-test = { workspace = true }
+instant-admin = { workspace = true }
+instant-client = { workspace = true }
 insta = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "macros"] }
+uuid = { workspace = true }
