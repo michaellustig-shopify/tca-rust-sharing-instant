@@ -283,6 +283,488 @@ async fn two_peers_see_each_other_presence() {
 }
 
 // ============================================================
+// Two-peer todos sync (subscribe + transact)
+// ============================================================
+
+/// Admin client writes a todo, WebSocket client B sees it via
+/// subscription. Then update + delete, B sees each change.
+/// Covers the todos and merge_tiles recipe pattern.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_peers_todos_subscribe_and_transact() {
+    use futures::StreamExt;
+    use instant_client::async_api::InstantAsync;
+
+    let app = make_app("two-peer-todos").await;
+    let admin = instant_admin::AdminClient::new(&app.id, &app.admin_token);
+
+    // B connects via WebSocket and subscribes.
+    let client_b = InstantAsync::new(ConnectionConfig::admin(&app.id, &app.admin_token))
+        .await
+        .expect("client B");
+    let mut stream_b = client_b.subscribe(&serde_json::json!({"todos": {}})).await;
+
+    // Wait for initial empty result.
+    let initial = tokio::time::timeout(Duration::from_secs(5), stream_b.next())
+        .await
+        .expect("should get initial data")
+        .expect("stream should yield");
+    let initial_count = initial
+        .get("todos")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    assert_eq!(initial_count, 0, "should start with no todos");
+
+    // A creates a todo via admin REST API.
+    let todo_id = uuid::Uuid::new_v4().to_string();
+    let tx = serde_json::json!([
+        ["update", "todos", &todo_id, {"text": "test-todo", "done": false}]
+    ]);
+    admin.transact(&tx).await.expect("admin transact");
+
+    // B should see it via subscription.
+    let update = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(data) = stream_b.next().await {
+            if let Some(arr) = data.get("todos").and_then(|v| v.as_array()) {
+                if !arr.is_empty() {
+                    return arr.clone();
+                }
+            }
+        }
+        vec![]
+    })
+    .await
+    .expect("B should see the todo within 5s");
+
+    assert_eq!(update.len(), 1, "B should see exactly 1 todo");
+    assert_eq!(
+        update[0].get("text").and_then(|v| v.as_str()),
+        Some("test-todo")
+    );
+
+    // A toggles done.
+    let tx2 = serde_json::json!([["update", "todos", &todo_id, {"done": true}]]);
+    admin.transact(&tx2).await.expect("admin toggle");
+
+    let toggle_update = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(data) = stream_b.next().await {
+            if let Some(arr) = data.get("todos").and_then(|v| v.as_array()) {
+                if let Some(todo) = arr.first() {
+                    if todo.get("done").and_then(|v| v.as_bool()) == Some(true) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    })
+    .await
+    .expect("B should see done=true within 5s");
+    assert!(toggle_update, "todo should be marked done");
+
+    // A deletes the todo.
+    let tx3 = serde_json::json!([["delete", "todos", &todo_id, {}]]);
+    admin.transact(&tx3).await.expect("admin delete");
+
+    let delete_update = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(data) = stream_b.next().await {
+            if let Some(arr) = data.get("todos").and_then(|v| v.as_array()) {
+                if arr.is_empty() {
+                    return true;
+                }
+            }
+        }
+        false
+    })
+    .await
+    .expect("B should see empty todos within 5s");
+    assert!(delete_update, "todos should be empty after delete");
+
+    client_b.close().await;
+}
+
+// ============================================================
+// Two-peer topic channel broadcast (reactions pattern)
+// ============================================================
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct EmojiReaction {
+    emoji: String,
+    sender: String,
+}
+
+/// Two reactors on the same app: A publishes an emoji reaction,
+/// B receives it via TopicChannel watch. Covers the reactions recipe.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_peers_topic_channel_broadcast() {
+    let app = make_app("two-peer-topic").await;
+
+    let config_a = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_a = Arc::new(Reactor::new(config_a));
+    reactor_a.start().await.expect("reactor A");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_a = tokio::runtime::Handle::current();
+
+    let config_b = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_b = Arc::new(Reactor::new(config_b));
+    reactor_b.start().await.expect("reactor B");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_b = tokio::runtime::Handle::current();
+
+    // Both need to join the room first (TopicChannel uses reactor.subscribe_topic
+    // which requires the room to exist). Join via reactor directly.
+    reactor_a.join_room("reactions", "lobby").await;
+    reactor_b.join_room("reactions", "lobby").await;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Both subscribe to the same topic.
+    let channel_a = TopicChannel::<EmojiReaction>::subscribe(
+        reactor_a.clone(),
+        handle_a,
+        "reactions",
+        "lobby",
+        "emoji",
+    )
+    .expect("A subscribe");
+
+    let channel_b = TopicChannel::<EmojiReaction>::subscribe(
+        reactor_b.clone(),
+        handle_b,
+        "reactions",
+        "lobby",
+        "emoji",
+    )
+    .expect("B subscribe");
+
+    // Wait for both topic subscriptions to be active on the server.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
+    // Set up B's watcher BEFORE A publishes.
+    let mut rx_b = channel_b.watch();
+
+    // A publishes.
+    channel_a
+        .publish(&EmojiReaction {
+            emoji: "fire".into(),
+            sender: "alice".into(),
+        })
+        .expect("A publish");
+
+    // B should receive it via watch.
+    let b_received = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_b.changed().await.expect("watch");
+            let events = rx_b.borrow().clone();
+            if let Some(ev) = events.last() {
+                if ev.data.emoji == "fire" {
+                    return ev.data.clone();
+                }
+            }
+        }
+    })
+    .await;
+
+    assert!(b_received.is_ok(), "B should receive the emoji within 5s");
+    let reaction = b_received.expect("reaction");
+    assert_eq!(reaction.emoji, "fire");
+    assert_eq!(reaction.sender, "alice");
+
+    reactor_a.stop().await;
+    reactor_b.stop().await;
+}
+
+// ============================================================
+// Two-peer typing presence sync
+// ============================================================
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct TypingPresence {
+    name: String,
+    is_typing: bool,
+}
+
+/// Two reactors: A sets is_typing=true, B sees it in peers.
+/// Then A sets is_typing=false, B sees the change.
+/// Covers the typing_indicator recipe.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_peers_typing_presence_sync() {
+    let app = make_app("two-peer-typing").await;
+
+    let config_a = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_a = Arc::new(Reactor::new(config_a));
+    reactor_a.start().await.expect("reactor A");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_a = tokio::runtime::Handle::current();
+
+    let config_b = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_b = Arc::new(Reactor::new(config_b));
+    reactor_b.start().await.expect("reactor B");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_b = tokio::runtime::Handle::current();
+
+    let room_a = Room::<TypingPresence>::join(reactor_a.clone(), handle_a, "typing", "chat")
+        .expect("A join");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let room_b = Room::<TypingPresence>::join(reactor_b.clone(), handle_b, "typing", "chat")
+        .expect("B join");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // B sets idle presence so A can see B.
+    room_b
+        .set_presence(&TypingPresence {
+            name: "bob".into(),
+            is_typing: false,
+        })
+        .expect("B set presence");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // A starts typing.
+    room_a
+        .set_presence(&TypingPresence {
+            name: "alice".into(),
+            is_typing: true,
+        })
+        .expect("A start typing");
+
+    // B should see A typing.
+    let mut rx_b = room_b.watch_presence();
+    let b_sees_typing = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_b.changed().await.expect("watch");
+            let state = rx_b.borrow().clone();
+            for p in state.peers.values() {
+                if p.name == "alice" && p.is_typing {
+                    return true;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(
+        b_sees_typing.is_ok(),
+        "B should see alice typing within 5s"
+    );
+
+    // A stops typing.
+    room_a
+        .set_presence(&TypingPresence {
+            name: "alice".into(),
+            is_typing: false,
+        })
+        .expect("A stop typing");
+
+    // B should see A not typing.
+    let b_sees_idle = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_b.changed().await.expect("watch");
+            let state = rx_b.borrow().clone();
+            for p in state.peers.values() {
+                if p.name == "alice" && !p.is_typing {
+                    return true;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(
+        b_sees_idle.is_ok(),
+        "B should see alice idle within 5s"
+    );
+
+    room_a.leave();
+    room_b.leave();
+    reactor_a.stop().await;
+    reactor_b.stop().await;
+}
+
+// ============================================================
+// Two-peer merge tiles sync (subscribe + transact for grid)
+// ============================================================
+
+/// Admin writes a tile, WebSocket B sees the color change.
+/// Covers the merge_tiles recipe.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_peers_merge_tiles_sync() {
+    use futures::StreamExt;
+    use instant_client::async_api::InstantAsync;
+
+    let app = make_app("two-peer-tiles").await;
+    let admin = instant_admin::AdminClient::new(&app.id, &app.admin_token);
+
+    // Seed a tile via admin.
+    let tile_id = "00000000-0000-0000-0001-000000000002";
+    let seed = serde_json::json!([
+        ["update", "tiles", tile_id, {"row": 1, "col": 2, "color": "gray"}]
+    ]);
+    admin.transact(&seed).await.expect("seed tile");
+
+    // B subscribes via WebSocket.
+    let client_b = InstantAsync::new(ConnectionConfig::admin(&app.id, &app.admin_token))
+        .await
+        .expect("client B");
+    let mut stream_b = client_b.subscribe(&serde_json::json!({"tiles": {}})).await;
+
+    // Wait for initial data with the gray tile.
+    let initial = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(data) = stream_b.next().await {
+            if let Some(arr) = data.get("tiles").and_then(|v| v.as_array()) {
+                if !arr.is_empty() {
+                    return arr.clone();
+                }
+            }
+        }
+        vec![]
+    })
+    .await
+    .expect("B should see initial tile");
+    assert!(!initial.is_empty(), "should have at least 1 tile");
+
+    // A paints it red via admin.
+    let paint = serde_json::json!([["update", "tiles", tile_id, {"color": "red"}]]);
+    admin.transact(&paint).await.expect("paint red");
+
+    // B should see the color change.
+    let color_update = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(data) = stream_b.next().await {
+            if let Some(arr) = data.get("tiles").and_then(|v| v.as_array()) {
+                for tile in arr {
+                    if tile.get("color").and_then(|v| v.as_str()) == Some("red") {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    })
+    .await
+    .expect("B should see red within 5s");
+    assert!(color_update, "tile should be red");
+
+    client_b.close().await;
+}
+
+// ============================================================
+// Two-peer cursor position sync
+// ============================================================
+
+/// Two reactors set cursor positions, verify each sees the
+/// other's x/y coordinates. Covers the cursors recipe.
+#[tokio::test(flavor = "multi_thread")]
+async fn two_peers_cursor_position_sync() {
+    #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct CursorPos {
+        name: String,
+        x: i32,
+        y: i32,
+    }
+
+    let app = make_app("two-peer-cursor").await;
+
+    let config_a = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_a = Arc::new(Reactor::new(config_a));
+    reactor_a.start().await.expect("reactor A");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_a = tokio::runtime::Handle::current();
+
+    let config_b = ConnectionConfig::admin(&app.id, &app.admin_token);
+    let reactor_b = Arc::new(Reactor::new(config_b));
+    reactor_b.start().await.expect("reactor B");
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let handle_b = tokio::runtime::Handle::current();
+
+    let room_a = Room::<CursorPos>::join(reactor_a.clone(), handle_a, "cursors", "canvas")
+        .expect("A join");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let room_b = Room::<CursorPos>::join(reactor_b.clone(), handle_b, "cursors", "canvas")
+        .expect("B join");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // A sets position (10, 15).
+    room_a
+        .set_presence(&CursorPos {
+            name: "alice".into(),
+            x: 10,
+            y: 15,
+        })
+        .expect("A set cursor");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // B sets position (30, 5).
+    room_b
+        .set_presence(&CursorPos {
+            name: "bob".into(),
+            x: 30,
+            y: 5,
+        })
+        .expect("B set cursor");
+
+    // A should see B's cursor at (30, 5).
+    let mut rx_a = room_a.watch_presence();
+    let a_sees_b = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_a.changed().await.expect("watch");
+            let state = rx_a.borrow().clone();
+            for p in state.peers.values() {
+                if p.name == "bob" && p.x == 30 && p.y == 5 {
+                    return true;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(a_sees_b.is_ok(), "A should see bob at (30,5) within 5s");
+
+    // B should see A's cursor at (10, 15).
+    let mut rx_b = room_b.watch_presence();
+    let b_sees_a = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_b.changed().await.expect("watch");
+            let state = rx_b.borrow().clone();
+            for p in state.peers.values() {
+                if p.name == "alice" && p.x == 10 && p.y == 15 {
+                    return true;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(b_sees_a.is_ok(), "B should see alice at (10,15) within 5s");
+
+    // A moves to a new position.
+    room_a
+        .set_presence(&CursorPos {
+            name: "alice".into(),
+            x: 20,
+            y: 20,
+        })
+        .expect("A move");
+
+    let b_sees_move = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            rx_b.changed().await.expect("watch");
+            let state = rx_b.borrow().clone();
+            for p in state.peers.values() {
+                if p.name == "alice" && p.x == 20 && p.y == 20 {
+                    return true;
+                }
+            }
+        }
+    })
+    .await;
+    assert!(
+        b_sees_move.is_ok(),
+        "B should see alice move to (20,20) within 5s"
+    );
+
+    room_a.leave();
+    room_b.leave();
+    reactor_a.stop().await;
+    reactor_b.stop().await;
+}
+
+// ============================================================
 // TopicChannel + PublishHandle tests
 // ============================================================
 
