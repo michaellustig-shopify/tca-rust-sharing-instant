@@ -378,12 +378,7 @@ async fn instantdb_room_and_topic_delegation() {
 // Auth success path (real server)
 // ============================================================
 
-// Auth tests fail with ephemeral apps due to response parsing bug in
-// instant_client::Auth. The auth HTTP client doesn't handle the ephemeral
-// app's response format correctly. Tracked for fix in rust-instantdb.
-
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "instant_client::Auth response parsing bug with ephemeral apps"]
 async fn auth_sign_in_as_guest_succeeds() {
     let app = make_app("auth-guest").await;
 
@@ -413,7 +408,6 @@ async fn auth_sign_in_as_guest_succeeds() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "instant_client::Auth response parsing bug with ephemeral apps"]
 async fn auth_sign_in_as_guest_with_callbacks_succeeds() {
     let app = make_app("auth-guest-cb").await;
 
@@ -442,7 +436,6 @@ async fn auth_sign_in_as_guest_with_callbacks_succeeds() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "instant_client::Auth response parsing bug with ephemeral apps"]
 async fn auth_sign_in_then_sign_out() {
     let app = make_app("auth-signout").await;
 
@@ -458,7 +451,6 @@ async fn auth_sign_in_then_sign_out() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "instant_client::Auth response parsing bug with ephemeral apps"]
 async fn auth_sign_in_with_token_round_trip() {
     let app = make_app("auth-token").await;
 
