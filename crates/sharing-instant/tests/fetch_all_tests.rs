@@ -103,3 +103,33 @@ fn fetch_all_with_custom_query() {
     let items = fetch.get();
     assert!(items.len() >= 1);
 }
+
+#[test]
+fn fetch_all_manual_reload() {
+    let db = Arc::new(InMemoryDatabase::new());
+    let mut fetch = FetchAll::<Item>::new(db.clone());
+
+    assert_eq!(fetch.get().len(), 0);
+
+    // Insert directly into the database (bypassing FetchAll).
+    db.insert(
+        "items",
+        "i1",
+        serde_json::json!({"id": "i1", "title": "Injected", "is_active": true}),
+    );
+
+    // Manual reload picks up the change.
+    fetch.load().expect("load should succeed");
+    assert_eq!(fetch.get().len(), 1);
+    assert_eq!(fetch.get()[0].title, "Injected");
+}
+
+#[test]
+fn fetch_all_loading_state() {
+    let db = Arc::new(InMemoryDatabase::new());
+    let fetch = FetchAll::<Item>::new(db);
+
+    // After initial load, is_loading should be false.
+    assert!(!fetch.is_loading());
+    assert!(fetch.load_error().is_none());
+}

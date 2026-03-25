@@ -323,3 +323,34 @@ fn shared_partial_eq_via_get() {
     shared1.with_lock(|v| *v = 100);
     assert_ne!(*shared1.get(), *shared2.get());
 }
+
+/// SharedReader::map() creates a derived read-only view.
+#[tokio::test]
+async fn shared_reader_map_derives_value() {
+    use sharing_instant::shared_reader::SharedReader;
+    use tokio::sync::watch;
+
+    let (tx, rx) = watch::channel(vec![1, 2, 3]);
+    let reader = SharedReader::from_watch(vec![1, 2, 3], rx);
+    let count_reader = reader.map(|v| v.len());
+
+    assert_eq!(*count_reader.get(), 3);
+
+    tx.send(vec![1, 2, 3, 4, 5]).expect("send");
+    // Give the spawned task time to propagate.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(*count_reader.get(), 5);
+}
+
+/// SharedReader::map() with an empty source.
+#[tokio::test]
+async fn shared_reader_map_empty_source() {
+    use sharing_instant::shared_reader::SharedReader;
+    use tokio::sync::watch;
+
+    let (_, rx) = watch::channel(String::new());
+    let reader = SharedReader::from_watch(String::new(), rx);
+    let len_reader = reader.map(|s| s.len());
+
+    assert_eq!(*len_reader.get(), 0);
+}

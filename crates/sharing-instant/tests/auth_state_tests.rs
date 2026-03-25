@@ -137,6 +137,57 @@ async fn sign_in_as_guest_with_callbacks_fires_error() {
     );
 }
 
+#[test]
+fn create_authorization_url_returns_string() {
+    let auth = AuthCoordinator::new("test-app");
+    let url = auth.create_authorization_url("my-client", "https://example.com/callback");
+    // Should return a non-empty URL string.
+    assert!(!url.is_empty(), "authorization URL should not be empty");
+    assert!(
+        url.contains("test-app") || url.contains("my-client") || url.contains("example.com"),
+        "URL should contain app or client info: {url}"
+    );
+}
+
+#[tokio::test]
+async fn send_magic_code_with_callbacks_fires_error() {
+    use sharing_instant::MutationCallbacks;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let auth = AuthCoordinator::new("nonexistent-app-id");
+
+    let error_called = Arc::new(AtomicBool::new(false));
+    let settled_called = Arc::new(AtomicBool::new(false));
+    let ec = error_called.clone();
+    let sc = settled_called.clone();
+
+    let cb = MutationCallbacks::<()>::new()
+        .on_error(move |_| ec.store(true, Ordering::SeqCst))
+        .on_settled(move || sc.store(true, Ordering::SeqCst));
+
+    auth.send_magic_code_with_callbacks("test@example.com", cb)
+        .await;
+
+    assert!(error_called.load(Ordering::SeqCst), "on_error should fire");
+    assert!(
+        settled_called.load(Ordering::SeqCst),
+        "on_settled should fire"
+    );
+}
+
+#[tokio::test]
+async fn sign_in_with_token_error_resets_to_unauthenticated() {
+    let auth = AuthCoordinator::new("nonexistent-app-id");
+    let _result = auth.sign_in_with_token("bad-token").await;
+    let state = auth.state();
+    assert!(
+        matches!(*state.get(), AuthState::Unauthenticated),
+        "expected Unauthenticated after failed sign_in_with_token, got: {:?}",
+        *state.get()
+    );
+}
+
 #[tokio::test]
 async fn sign_out_with_callbacks_fires_success() {
     use sharing_instant::MutationCallbacks;

@@ -305,3 +305,216 @@ async fn fetch_all_delete_with_callbacks() {
 
     assert!(called.load(Ordering::SeqCst));
 }
+
+// --- Mutator callback variants ---
+
+#[test]
+fn update_with_callbacks_fires_success() {
+    let (_db, mutator) = setup();
+
+    mutator
+        .create(&Todo {
+            id: "t1".into(),
+            title: "Original".into(),
+            is_completed: false,
+        })
+        .expect("create");
+
+    let called = Arc::new(AtomicBool::new(false));
+    let c = called.clone();
+    let cb = MutationCallbacks::<()>::new().on_success(move |_| c.store(true, Ordering::SeqCst));
+
+    mutator
+        .update_with_callbacks(
+            "t1",
+            &Todo {
+                id: "t1".into(),
+                title: "Updated".into(),
+                is_completed: true,
+            },
+            cb,
+        )
+        .expect("update_with_callbacks");
+
+    assert!(called.load(Ordering::SeqCst));
+}
+
+#[test]
+fn delete_with_callbacks_fires_success() {
+    let (_db, mutator) = setup();
+
+    mutator
+        .create(&Todo {
+            id: "t1".into(),
+            title: "To delete".into(),
+            is_completed: false,
+        })
+        .expect("create");
+
+    let called = Arc::new(AtomicBool::new(false));
+    let c = called.clone();
+    let cb = MutationCallbacks::<()>::new().on_success(move |_| c.store(true, Ordering::SeqCst));
+
+    mutator
+        .delete_with_callbacks("t1", cb)
+        .expect("delete_with_callbacks");
+
+    assert!(called.load(Ordering::SeqCst));
+}
+
+// --- FetchAll: update, link, unlink delegates ---
+
+#[tokio::test]
+async fn fetch_all_update() {
+    use sharing_instant::FetchAll;
+
+    let db: Arc<dyn Database> = Arc::new(InMemoryDatabase::new());
+    let fetch = FetchAll::<Todo>::new(db);
+
+    fetch
+        .create(&Todo {
+            id: "t1".into(),
+            title: "Original".into(),
+            is_completed: false,
+        })
+        .expect("create");
+
+    fetch
+        .update(
+            "t1",
+            &Todo {
+                id: "t1".into(),
+                title: "Updated".into(),
+                is_completed: true,
+            },
+        )
+        .expect("update via FetchAll");
+}
+
+#[tokio::test]
+async fn fetch_all_link_and_unlink() {
+    use sharing_instant::FetchAll;
+
+    let db: Arc<dyn Database> = Arc::new(InMemoryDatabase::new());
+    let fetch = FetchAll::<Todo>::new(db);
+
+    fetch
+        .create(&Todo {
+            id: "t1".into(),
+            title: "First".into(),
+            is_completed: false,
+        })
+        .expect("create t1");
+    fetch
+        .create(&Todo {
+            id: "t2".into(),
+            title: "Second".into(),
+            is_completed: false,
+        })
+        .expect("create t2");
+
+    fetch.link("t1", "related", "t2").expect("link");
+    fetch.unlink("t1", "related", "t2").expect("unlink");
+}
+
+#[tokio::test]
+async fn fetch_all_update_with_callbacks() {
+    use sharing_instant::FetchAll;
+
+    let db: Arc<dyn Database> = Arc::new(InMemoryDatabase::new());
+    let fetch = FetchAll::<Todo>::new(db);
+
+    fetch
+        .create(&Todo {
+            id: "t1".into(),
+            title: "Original".into(),
+            is_completed: false,
+        })
+        .expect("create");
+
+    let called = Arc::new(AtomicBool::new(false));
+    let c = called.clone();
+    let cb = MutationCallbacks::<()>::new().on_success(move |_| c.store(true, Ordering::SeqCst));
+
+    fetch
+        .update_with_callbacks(
+            "t1",
+            &Todo {
+                id: "t1".into(),
+                title: "Updated".into(),
+                is_completed: true,
+            },
+            cb,
+        )
+        .expect("update_with_callbacks via FetchAll");
+
+    assert!(called.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn fetch_all_link_with_callbacks() {
+    use sharing_instant::FetchAll;
+
+    let db: Arc<dyn Database> = Arc::new(InMemoryDatabase::new());
+    let fetch = FetchAll::<Todo>::new(db);
+
+    fetch
+        .create(&Todo {
+            id: "t1".into(),
+            title: "First".into(),
+            is_completed: false,
+        })
+        .expect("create t1");
+    fetch
+        .create(&Todo {
+            id: "t2".into(),
+            title: "Second".into(),
+            is_completed: false,
+        })
+        .expect("create t2");
+
+    let called = Arc::new(AtomicBool::new(false));
+    let c = called.clone();
+    let cb = MutationCallbacks::<()>::new().on_success(move |_| c.store(true, Ordering::SeqCst));
+
+    fetch
+        .link_with_callbacks("t1", "related", "t2", cb)
+        .expect("link_with_callbacks via FetchAll");
+
+    assert!(called.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn fetch_all_unlink_with_callbacks() {
+    use sharing_instant::FetchAll;
+
+    let db: Arc<dyn Database> = Arc::new(InMemoryDatabase::new());
+    let fetch = FetchAll::<Todo>::new(db);
+
+    fetch
+        .create(&Todo {
+            id: "t1".into(),
+            title: "First".into(),
+            is_completed: false,
+        })
+        .expect("create t1");
+    fetch
+        .create(&Todo {
+            id: "t2".into(),
+            title: "Second".into(),
+            is_completed: false,
+        })
+        .expect("create t2");
+
+    fetch.link("t1", "related", "t2").expect("link");
+
+    let called = Arc::new(AtomicBool::new(false));
+    let c = called.clone();
+    let cb = MutationCallbacks::<()>::new().on_success(move |_| c.store(true, Ordering::SeqCst));
+
+    fetch
+        .unlink_with_callbacks("t1", "related", "t2", cb)
+        .expect("unlink_with_callbacks via FetchAll");
+
+    assert!(called.load(Ordering::SeqCst));
+}
