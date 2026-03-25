@@ -1,0 +1,29 @@
+[package]
+name = "sharing-instant"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+integration = []
+
+[dependencies]
+sharing-instant-macros = { workspace = true }
+instant-core = { workspace = true }
+instant-schema = { workspace = true }
+instant-client = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+sharing-instant-test = { workspace = true }
+instant-test = { workspace = true }
+insta = { workspace = true }
+tokio = { workspace = true, features = ["test-util", "macros"] }

@@ -1,0 +1,12 @@
+[package]
+name = "sharing-instant-test"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+sharing-instant = { workspace = true }
+instant-core = { workspace = true }
+instant-test = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
