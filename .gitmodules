@@ -1,0 +1,9 @@
+[submodule "references/sqlite-data"]
+	path = references/sqlite-data
+	url = https://github.com/pointfreeco/sqlite-data.git
+[submodule "references/swift-sharing"]
+	path = references/swift-sharing
+	url = https://github.com/pointfreeco/swift-sharing.git
+[submodule "references/sharing-instant-swift"]
+	path = references/sharing-instant-swift
+	url = https://github.com/technoplato/sharing-instant.git

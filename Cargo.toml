@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/sharing-instant",
+    "crates/sharing-instant-macros",
+    "crates/sharing-instant-test",
+    "crates/trinity",
+    "examples/live_sync",
+    "examples/counter_sync",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/mlustig/rust-sharing-instant"
+
+[workspace.dependencies]
+# Internal crates
+sharing-instant = { path = "crates/sharing-instant" }
+sharing-instant-macros = { path = "crates/sharing-instant-macros" }
+sharing-instant-test = { path = "crates/sharing-instant-test" }
+
+# InstantDB (sibling workspace)
+instant-core = { path = "../rust-instantdb/crates/instant-core" }
+instant-schema = { path = "../rust-instantdb/crates/instant-schema" }
+instant-client = { path = "../rust-instantdb/crates/instant-client" }
+instant-admin = { path = "../rust-instantdb/crates/instant-admin" }
+instant-test = { path = "../rust-instantdb/crates/instant-test" }
+instant-test-macros = { path = "../rust-instantdb/crates/instant-test-macros" }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+parking_lot = "0.12"
+dashmap = "6"
+
+# Proc macros
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+
+# Testing
+insta = { version = "1", features = ["yaml"] }
