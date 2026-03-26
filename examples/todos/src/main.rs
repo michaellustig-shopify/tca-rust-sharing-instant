@@ -29,6 +29,9 @@ async fn main() {
     let app = get_or_create_app("todos").await.expect("app setup failed");
     print_join_instructions(&app, "todos");
 
+    // Admin client for writes (REST API).
+    // WebSocket client for reactive subscriptions.
+    let admin = instant_admin::AdminClient::new(&app.id, &app.admin_token);
     let config = ConnectionConfig::admin(&app.id, &app.admin_token);
     let client = InstantAsync::new(config)
         .await
@@ -87,7 +90,7 @@ async fn main() {
             let id = uuid();
             let tx =
                 json!([["update", "todos", &id, {"text": text, "done": false, "ts": now_ms()}]]);
-            match client.transact(&tx).await {
+            match admin.transact(&tx).await {
                 Ok(_) => println!("  Added: {text}"),
                 Err(e) => println!("  Error: {e}"),
             }
@@ -108,7 +111,7 @@ async fn main() {
                     let done = todo.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
                     drop(todos);
                     let tx = json!([["update", "todos", &id, {"done": !done}]]);
-                    match client.transact(&tx).await {
+                    match admin.transact(&tx).await {
                         Ok(_) => println!("  Toggled #{idx}"),
                         Err(e) => println!("  Error: {e}"),
                     }
@@ -131,7 +134,7 @@ async fn main() {
                         .to_string();
                     drop(todos);
                     let tx = json!([["delete", "todos", &id, {}]]);
-                    match client.transact(&tx).await {
+                    match admin.transact(&tx).await {
                         Ok(_) => println!("  Deleted #{idx}"),
                         Err(e) => println!("  Error: {e}"),
                     }

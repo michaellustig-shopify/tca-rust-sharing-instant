@@ -411,12 +411,7 @@ async fn two_peers_topic_channel_broadcast() {
     tokio::time::sleep(Duration::from_millis(1500)).await;
     let handle_b = tokio::runtime::Handle::current();
 
-    // Both need to join the room first (TopicChannel uses reactor.subscribe_topic
-    // which requires the room to exist). Join via reactor directly.
-    reactor_a.join_room("reactions", "lobby").await;
-    reactor_b.join_room("reactions", "lobby").await;
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-
+    // TopicChannel::subscribe now calls join_room internally (matching JS client).
     // Both subscribe to the same topic.
     let channel_a = TopicChannel::<EmojiReaction>::subscribe(
         reactor_a.clone(),

@@ -1,0 +1,11 @@
+[package]
+name = "showcase"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "showcase"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"

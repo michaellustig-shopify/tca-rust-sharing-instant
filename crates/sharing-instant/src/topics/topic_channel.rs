@@ -106,6 +106,10 @@ impl<T: Serialize + DeserializeOwned + Clone + Send + Sync + 'static> TopicChann
         let sender_ref = channel.events_sender.clone();
 
         handle.spawn(async move {
+            // The JS client calls joinRoom() inside subscribeTopic().
+            // The server requires a join-room before it will route broadcasts.
+            let _presence_rx = reactor.join_room(&room_type, &room_id).await;
+
             // subscribe_topic returns mpsc::UnboundedReceiver<Value> directly.
             let mut rx = reactor.subscribe_topic(&room_type, &room_id, &topic).await;
 

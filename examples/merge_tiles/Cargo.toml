@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 recipe-utils = { path = "../recipe_utils" }
+instant-admin = { workspace = true }
 instant-client = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }

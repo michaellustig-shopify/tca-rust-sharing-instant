@@ -46,6 +46,9 @@ async fn main() {
         .expect("app setup failed");
     print_join_instructions(&app, "merge-tiles");
 
+    // Admin client for writes (REST API — always works).
+    // WebSocket client for reactive subscriptions.
+    let admin = instant_admin::AdminClient::new(&app.id, &app.admin_token);
     let config = ConnectionConfig::admin(&app.id, &app.admin_token);
     let client = InstantAsync::new(config)
         .await
@@ -72,7 +75,7 @@ async fn main() {
                 }]));
             }
         }
-        client
+        admin
             .transact(&json!(steps))
             .await
             .expect("seed transact failed");
@@ -137,7 +140,7 @@ async fn main() {
                     steps.push(json!(["update", "tiles", &id, {"color": "gray"}]));
                 }
             }
-            match client.transact(&json!(steps)).await {
+            match admin.transact(&json!(steps)).await {
                 Ok(_) => println!("  Grid reset!"),
                 Err(e) => println!("  Error: {e}"),
             }
@@ -156,7 +159,7 @@ async fn main() {
                 } else {
                     let id = tile_id(row, col);
                     let tx = json!([["update", "tiles", &id, {"color": color}]]);
-                    match client.transact(&tx).await {
+                    match admin.transact(&tx).await {
                         Ok(_) => {}
                         Err(e) => println!("  Error: {e}"),
                     }

@@ -15,6 +15,7 @@ members = [
     "examples/typing_indicator",
     "examples/cursors",
     "examples/merge_tiles",
+    "examples/showcase",
 ]
 
 [workspace.package]
