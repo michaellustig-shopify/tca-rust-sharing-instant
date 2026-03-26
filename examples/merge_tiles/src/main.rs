@@ -1,13 +1,16 @@
 //! Merge Tiles — collaborative 4x4 colored grid.
 //!
-//! Demonstrates real-time database subscribe + transact with a visual grid.
+//! Demonstrates real-time database subscribe + transact_chunks with a visual grid.
 //! Each tile is a database entity with a color. Multiple users can paint
 //! tiles simultaneously and see changes in real-time.
 
 use futures::StreamExt;
 use instant_client::async_api::InstantAsync;
 use instant_client::connection::ConnectionConfig;
+use instant_core::instatx::tx;
+use instant_core::value::Value;
 use parking_lot::RwLock;
+use std::collections::BTreeMap;
 use recipe_utils::{get_or_create_app, print_join_instructions, BOLD, DIM, RESET};
 use serde_json::json;
 use std::sync::Arc;
@@ -29,6 +32,14 @@ fn tile_id(row: usize, col: usize) -> String {
     format!("00000000-0000-0000-{:04x}-{:012x}", row, col)
 }
 
+fn obj(pairs: Vec<(&str, Value)>) -> Value {
+    let mut map = BTreeMap::new();
+    for (k, v) in pairs {
+        map.insert(k.to_string(), v);
+    }
+    Value::Object(map)
+}
+
 fn color_bg(name: &str) -> &'static str {
     TILE_COLORS
         .iter()
@@ -46,9 +57,6 @@ async fn main() {
         .expect("app setup failed");
     print_join_instructions(&app, "merge-tiles");
 
-    // Admin client for writes (REST API — always works).
-    // WebSocket client for reactive subscriptions.
-    let admin = instant_admin::AdminClient::new(&app.id, &app.admin_token);
     let config = ConnectionConfig::admin(&app.id, &app.admin_token);
     let client = InstantAsync::new(config)
         .await
@@ -66,17 +74,20 @@ async fn main() {
 
     if needs_seed {
         println!("  Seeding 4x4 grid...");
-        let mut steps = Vec::new();
+        let mut chunks = Vec::new();
         for row in 0..GRID_SIZE {
             for col in 0..GRID_SIZE {
                 let id = tile_id(row, col);
-                steps.push(json!(["update", "tiles", &id, {
-                    "row": row, "col": col, "color": "gray"
-                }]));
+                let attrs = obj(vec![
+                    ("row", Value::from(row as i64)),
+                    ("col", Value::from(col as i64)),
+                    ("color", Value::from("gray")),
+                ]);
+                chunks.push(tx("tiles", id.as_str()).update(attrs));
             }
         }
-        admin
-            .transact(&json!(steps))
+        client
+            .transact_chunks(&chunks)
             .await
             .expect("seed transact failed");
     }
@@ -133,14 +144,14 @@ async fn main() {
         }
 
         if line == "reset" {
-            let mut steps = Vec::new();
+            let mut chunks = Vec::new();
             for row in 0..GRID_SIZE {
                 for col in 0..GRID_SIZE {
                     let id = tile_id(row, col);
-                    steps.push(json!(["update", "tiles", &id, {"color": "gray"}]));
+                    chunks.push(tx("tiles", id.as_str()).update(obj(vec![("color", Value::from("gray"))])));
                 }
             }
-            match admin.transact(&json!(steps)).await {
+            match client.transact_chunks(&chunks).await {
                 Ok(_) => println!("  Grid reset!"),
                 Err(e) => println!("  Error: {e}"),
             }
@@ -158,8 +169,8 @@ async fn main() {
                     println!("  Unknown color. Try: red, green, yellow, blue, magenta, cyan, white, gray");
                 } else {
                     let id = tile_id(row, col);
-                    let tx = json!([["update", "tiles", &id, {"color": color}]]);
-                    match admin.transact(&tx).await {
+                    let chunks = vec![tx("tiles", id.as_str()).update(obj(vec![("color", Value::from(color))]))];
+                    match client.transact_chunks(&chunks).await {
                         Ok(_) => {}
                         Err(e) => println!("  Error: {e}"),
                     }

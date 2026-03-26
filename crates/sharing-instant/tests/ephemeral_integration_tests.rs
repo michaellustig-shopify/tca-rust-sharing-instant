@@ -301,10 +301,12 @@ async fn two_peers_todos_subscribe_and_transact() {
     let client_b = InstantAsync::new(ConnectionConfig::admin(&app.id, &app.admin_token))
         .await
         .expect("client B");
+    // Wait for InitOk before subscribing.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
     let mut stream_b = client_b.subscribe(&serde_json::json!({"todos": {}})).await;
 
     // Wait for initial empty result.
-    let initial = tokio::time::timeout(Duration::from_secs(5), stream_b.next())
+    let initial = tokio::time::timeout(Duration::from_secs(10), stream_b.next())
         .await
         .expect("should get initial data")
         .expect("stream should yield");
@@ -381,6 +383,71 @@ async fn two_peers_todos_subscribe_and_transact() {
     assert!(delete_update, "todos should be empty after delete");
 
     client_b.close().await;
+}
+
+// ============================================================
+// WebSocket transact_chunks (proper client-side transform)
+// ============================================================
+
+/// Verifies that transact_chunks (which transforms high-level ops
+/// using the attrs catalog) works end-to-end through the WebSocket.
+/// This is the correct way to write data — the server rejects raw
+/// high-level ops like ["update", ...] on the WebSocket endpoint.
+#[tokio::test(flavor = "multi_thread")]
+async fn transact_chunks_creates_and_queries() {
+    use futures::StreamExt;
+    use instant_client::async_api::InstantAsync;
+    use instant_core::instatx::tx;
+    use instant_core::value::Value;
+
+    let app = make_app("transact-chunks").await;
+    let client = InstantAsync::new(ConnectionConfig::admin(&app.id, &app.admin_token))
+        .await
+        .expect("client");
+
+    // Wait for InitOk (attrs catalog needed for transact_chunks transform).
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+
+    // Create a todo via transact_chunks.
+    let todo_id = uuid::Uuid::new_v4().to_string();
+    let mut attrs = std::collections::BTreeMap::new();
+    attrs.insert("text".to_string(), Value::from("chunks-test"));
+    attrs.insert("done".to_string(), Value::from(false));
+    let chunks = vec![tx("todos", todo_id.as_str()).update(Value::Object(attrs))];
+
+    let result = client.transact_chunks(&chunks).await;
+    assert!(
+        result.is_ok(),
+        "transact_chunks should succeed: {:?}",
+        result.err()
+    );
+
+    // Verify via subscription.
+    let mut stream = client.subscribe(&serde_json::json!({"todos": {}})).await;
+    let found = tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(data) = stream.next().await {
+            if let Some(arr) = data.get("todos").and_then(|v| v.as_array()) {
+                for todo in arr {
+                    if todo.get("text").and_then(|v| v.as_str()) == Some("chunks-test") {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    })
+    .await
+    .expect("should find todo via subscription within 5s");
+    assert!(found, "todo created via transact_chunks should be queryable");
+
+    // Delete via transact_chunks.
+    let del_chunks = vec![tx("todos", todo_id.as_str()).delete()];
+    client
+        .transact_chunks(&del_chunks)
+        .await
+        .expect("delete should succeed");
+
+    client.close().await;
 }
 
 // ============================================================

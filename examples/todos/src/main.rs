@@ -1,14 +1,17 @@
 //! Todos — collaborative todo list with real-time sync.
 //!
-//! Demonstrates `InstantAsync::subscribe` + `transact` for CRUD operations.
+//! Demonstrates `InstantAsync::subscribe` + `transact_chunks` for CRUD.
 //! A background watcher reprints the numbered list on every database change.
 
 use futures::StreamExt;
 use instant_client::async_api::InstantAsync;
 use instant_client::connection::ConnectionConfig;
+use instant_core::instatx::tx;
+use instant_core::value::Value;
 use parking_lot::RwLock;
 use recipe_utils::{get_or_create_app, print_join_instructions, BOLD, DIM, RESET};
 use serde_json::json;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn uuid() -> String {
@@ -22,6 +25,15 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
+/// Build a Value::Object from key-value pairs.
+fn obj(pairs: Vec<(&str, Value)>) -> Value {
+    let mut map = BTreeMap::new();
+    for (k, v) in pairs {
+        map.insert(k.to_string(), v);
+    }
+    Value::Object(map)
+}
+
 #[tokio::main]
 async fn main() {
     println!("\n  {BOLD}Todos{RESET} — collaborative todo list\n");
@@ -29,9 +41,6 @@ async fn main() {
     let app = get_or_create_app("todos").await.expect("app setup failed");
     print_join_instructions(&app, "todos");
 
-    // Admin client for writes (REST API).
-    // WebSocket client for reactive subscriptions.
-    let admin = instant_admin::AdminClient::new(&app.id, &app.admin_token);
     let config = ConnectionConfig::admin(&app.id, &app.admin_token);
     let client = InstantAsync::new(config)
         .await
@@ -88,9 +97,13 @@ async fn main() {
         if line.starts_with("add ") {
             let text = &line[4..];
             let id = uuid();
-            let tx =
-                json!([["update", "todos", &id, {"text": text, "done": false, "ts": now_ms()}]]);
-            match admin.transact(&tx).await {
+            let attrs = obj(vec![
+                ("text", Value::from(text)),
+                ("done", Value::from(false)),
+                ("ts", Value::from(now_ms())),
+            ]);
+            let chunks = vec![tx("todos", id.as_str()).update(attrs)];
+            match client.transact_chunks(&chunks).await {
                 Ok(_) => println!("  Added: {text}"),
                 Err(e) => println!("  Error: {e}"),
             }
@@ -110,8 +123,9 @@ async fn main() {
                         .to_string();
                     let done = todo.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
                     drop(todos);
-                    let tx = json!([["update", "todos", &id, {"done": !done}]]);
-                    match admin.transact(&tx).await {
+                    let attrs = obj(vec![("done", Value::from(!done))]);
+                    let chunks = vec![tx("todos", id.as_str()).update(attrs)];
+                    match client.transact_chunks(&chunks).await {
                         Ok(_) => println!("  Toggled #{idx}"),
                         Err(e) => println!("  Error: {e}"),
                     }
@@ -133,8 +147,8 @@ async fn main() {
                         .unwrap_or("")
                         .to_string();
                     drop(todos);
-                    let tx = json!([["delete", "todos", &id, {}]]);
-                    match admin.transact(&tx).await {
+                    let chunks = vec![tx("todos", id.as_str()).delete()];
+                    match client.transact_chunks(&chunks).await {
                         Ok(_) => println!("  Deleted #{idx}"),
                         Err(e) => println!("  Error: {e}"),
                     }
