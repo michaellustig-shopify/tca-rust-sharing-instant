@@ -87,6 +87,71 @@ Interactive CLI demos in `examples/`. All share a single InstantDB app by defaul
 - Always show the App ID and dashboard URL on startup.
 - Single-keypress input where possible (raw terminal mode).
 
+## Incident Log
+
+Document every bug discovered during development: what broke, why, how it was fixed, and what tests prevent regression. This section is append-only — never remove entries.
+
+### 1. Presence messages fail to deserialize (room-type missing)
+
+**What broke:** Two terminals running `avatar-stack` couldn't see each other. The `[ws] unparsed msg` log showed `refresh-presence` messages arriving from the server but failing to parse as `ServerMessage`.
+
+**Why:** The Clojure server never includes `room-type` in `refresh-presence`, `patch-presence`, or `server-broadcast` messages (confirmed in `session.clj:657-675` and `admin/routes.clj:736-742` — explicit comment: "we did not actually use it"). The JS client never reads it either. But our Rust `ServerMessage` enum declared `room_type: String` as required — serde rejected the field's absence.
+
+**How fixed:** Changed `room_type` to `Option<String>` with `#[serde(default)]` on all three variants in `instant-client/src/protocol.rs`. Updated the reactor handlers to use `room_id` suffix matching (already the pattern for RefreshPresence, but ServerBroadcast was using the empty room_type in its key lookup).
+
+**Tests:** 4 deserialization tests in `protocol.rs` covering the exact JSON shapes the server sends — with and without `room-type`. `two_peers_see_each_other_presence` integration test verifies end-to-end.
+
+### 2. PatchPresence reads wrong field name (data vs edits)
+
+**What broke:** Incremental presence updates were silently empty — the `data` field was always null.
+
+**Why:** The server sends `{op: "patch-presence", room-id: ..., edits: [...]}` but our `PatchPresence` struct had a field named `data`. Serde deserialized the missing `data` as null while the actual edits in `edits` were ignored.
+
+**How fixed:** Renamed the field from `data` to `edits` in `protocol.rs` and updated the reactor handler.
+
+**Tests:** `deserialize_patch_presence_without_room_type` test uses the exact server payload shape with `edits` field.
+
+### 3. Room presence envelope not unwrapped (data field extraction)
+
+**What broke:** Even after fixing deserialization, peers showed as "PARSE FAILED" — the `UserPresence` struct couldn't deserialize from the raw presence envelope.
+
+**Why:** The server sends `{session_id: {peer-id: ..., instance-id: ..., user: null, data: {actual_payload}}}`. The Room listener was trying to deserialize the entire envelope as `UserPresence` instead of extracting the nested `data` field. The JS client does this extraction in `_setPresencePeers()`.
+
+**How fixed:** Room listener in `room.rs` now extracts `envelope.get("data")` before deserializing. Also filters self vs peers using `reactor.session_id()`.
+
+**Tests:** `two_peers_see_each_other_presence` — two reactors on the same app verify bidirectional presence with correct field values.
+
+### 4. TopicChannel doesn't join the room (broadcasts not routed)
+
+**What broke:** The `reactions` example — publishing emojis between two terminals produced no events on the receiving side.
+
+**Why:** The JS client's `subscribeTopic()` calls `this.joinRoom()` internally (line 2605 in `Reactor.js`). Our `TopicChannel::subscribe` only called `reactor.subscribe_topic()` which creates local state but doesn't send `join-room` to the server. The server only routes `server-broadcast` to sessions that have joined the room.
+
+**How fixed:** Added `reactor.join_room()` call inside `TopicChannel::subscribe`, before `subscribe_topic`.
+
+**Tests:** `two_peers_topic_channel_broadcast` — A publishes, B receives via `TopicChannel::watch`.
+
+### 5. WebSocket transact rejects high-level ops (Validation failed for tx-steps)
+
+**What broke:** `todos` and `merge_tiles` panicked with `ServerError("Validation failed for tx-steps")` when creating/updating entities.
+
+**Why:** The WebSocket `transact` endpoint expects **low-level** steps (`add-triple`, `deep-merge-triple`, `retract-triple`, etc.) that the client produces by transforming high-level ops using the attrs catalog from `InitOk`. The **admin REST API** does this transform server-side, but the WebSocket endpoint does not. Our examples were sending raw high-level ops (`["update", "todos", id, {...}]`) through the WebSocket.
+
+**How fixed:** Switched from `client.transact()` (raw steps) to `client.transact_chunks()` which calls `instaml::transform()` with the attrs catalog. Uses `instant_core::instatx::tx()` builder: `tx("todos", id).update(attrs)`.
+
+**Gotcha:** `transact_chunks` requires the attrs catalog from `InitOk`. `InstantAsync::new` returns before `InitOk` arrives. Examples must subscribe first (which waits for the connection) or sleep before calling `transact_chunks`.
+
+**Tests:** `transact_chunks_creates_and_queries` — creates, reads, and deletes via the WebSocket transact path.
+
+### Process rule
+
+When you hit a bug:
+1. Add `eprintln!` logging gated behind `INSTANT_LOG=1` — never to stdout/stderr unconditionally
+2. Find the root cause by comparing against the upstream JS client and Clojure server
+3. Fix in the correct layer (instant-client-rs for protocol bugs, sharing-instant for API bugs)
+4. Write a regression test that would have caught it
+5. Document it here
+
 ## Trinity
 
 Trinity enforces documentation/tests/code synchronization. Run:
